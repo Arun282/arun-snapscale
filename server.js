@@ -9,6 +9,35 @@ app.get("/api/public/settings",(q,s)=>{let x=settings();s.json({...x,accountNumb
 app.post("/api/auth/register",async(q,s)=>{let{name,email,password}=q.body;email=(email||"").trim().toLowerCase();if(!name||!email||!password||password.length<6)return s.status(400).json({error:"Name, email and 6+ character password required"});let u=read(DB);if(u.some(x=>x.email===email))return s.status(409).json({error:"Email already registered"});let x={id:Date.now().toString(),name,email,password:await bcrypt.hash(password,12),role:"user",createdAt:new Date().toISOString(),purchase:null};u.push(x);write(DB,u);s.status(201).json({token:jwt.sign({id:x.id,email:x.email,role:x.role},SECRET,{expiresIn:"30d"}),user:{name:x.name,email:x.email,role:x.role,purchase:null}})});
 app.post("/api/auth/login",async(q,s)=>{let email=(q.body.email||"").trim().toLowerCase(),u=read(DB).find(x=>x.email===email);if(!u||!(await bcrypt.compare(q.body.password||"",u.password)))return s.status(401).json({error:"Invalid email or password"});s.json({token:jwt.sign({id:u.id,email:u.email,role:u.role},SECRET,{expiresIn:"30d"}),user:{name:u.name,email:u.email,role:u.role,purchase:u.purchase||null}})});
 app.get("/api/me",auth,(q,s)=>{let u=read(DB).find(x=>x.id===q.user.id);u?s.json({user:{name:u.name,email:u.email,role:u.role,purchase:u.purchase||null}}):s.status(404).json({error:"User not found"})});
+app.get("/api/payment/config",(q,s)=>s.json({enabled:!!(process.env.RAZORPAY_KEY_ID&&process.env.RAZORPAY_KEY_SECRET),keyId:process.env.RAZORPAY_KEY_ID||""}));
+app.post("/api/payment/create-order",auth,async(q,s)=>{
+  try{
+    if(!process.env.RAZORPAY_KEY_ID||!process.env.RAZORPAY_KEY_SECRET)return s.status(503).json({error:"Automatic payment gateway is not configured yet"});
+    const Razorpay=require("razorpay");
+    const rz=new Razorpay({key_id:process.env.RAZORPAY_KEY_ID,key_secret:process.env.RAZORPAY_KEY_SECRET});
+    const amount=Math.round((Number(q.body.amount)||settings().price)*100);
+    const order=await rz.orders.create({amount,currency:"INR",receipt:"ss_"+q.user.id+"_"+Date.now(),notes:{userId:q.user.id}});
+    s.json({orderId:order.id,amount:order.amount,currency:order.currency,keyId:process.env.RAZORPAY_KEY_ID});
+  }catch(e){s.status(500).json({error:"Could not create payment order"})}
+});
+app.post("/api/payment/verify",auth,async(q,s)=>{
+  try{
+    const {razorpay_order_id,razorpay_payment_id,razorpay_signature}=q.body;
+    if(!razorpay_order_id||!razorpay_payment_id||!razorpay_signature)return s.status(400).json({error:"Payment verification data missing"});
+    const crypto=require("crypto"),expected=crypto.createHmac("sha256",process.env.RAZORPAY_KEY_SECRET).update(razorpay_order_id+"|"+razorpay_payment_id).digest("hex");
+    if(!crypto.timingSafeEqual(Buffer.from(expected),Buffer.from(razorpay_signature)))return s.status(400).json({error:"Payment signature verification failed"});
+    const Razorpay=require("razorpay"),rz=new Razorpay({key_id:process.env.RAZORPAY_KEY_ID,key_secret:process.env.RAZORPAY_KEY_SECRET});
+    const payment=await rz.payments.fetch(razorpay_payment_id);
+    const amount=Number(payment.amount)/100;
+    if(payment.order_id!==razorpay_order_id||payment.currency!=="INR"||payment.status!=="captured")return s.status(400).json({error:"Payment is not captured"});
+    const u=read(DB),i=u.findIndex(x=>x.id===q.user.id);if(i<0)return s.status(404).json({error:"User not found"});
+    const now=new Date().toISOString();
+    u[i].purchase={status:"approved",transactionId:razorpay_payment_id,orderId:razorpay_order_id,amount,createdAt:u[i].purchase?.createdAt||now,approvedAt:now,provider:"razorpay"};
+    write(DB,u);
+    const p=read(PAY);if(!p.some(x=>x.transactionId===razorpay_payment_id)){p.push({userId:u[i].id,email:u[i].email,transactionId:razorpay_payment_id,orderId:razorpay_order_id,amount,status:"approved",provider:"razorpay",createdAt:now,approvedAt:now});write(PAY,p)}
+    s.json({ok:true,status:"approved",purchase:u[i].purchase});
+  }catch(e){s.status(500).json({error:"Automatic payment verification failed"})}
+});
 app.post("/api/purchase",auth,(q,s)=>{let{transactionId,amount}=q.body;if(!transactionId)return s.status(400).json({error:"Transaction ID required"});let u=read(DB),i=u.findIndex(x=>x.id===q.user.id);if(i<0)return s.status(404).json({error:"User not found"});u[i].purchase={status:"pending",transactionId:String(transactionId).trim(),amount:Number(amount)||settings().price,createdAt:new Date().toISOString()};write(DB,u);let p=read(PAY);p.push({userId:u[i].id,email:u[i].email,transactionId:String(transactionId).trim(),amount:Number(amount)||settings().price,status:"pending",createdAt:new Date().toISOString()});write(PAY,p);s.json({ok:true,status:"pending"})});
 app.get("/api/admin/users",auth,admin,(q,s)=>s.json(read(DB).map(({password,...u})=>u)));
 app.get("/api/admin/payments",auth,admin,(q,s)=>s.json(read(PAY)));
