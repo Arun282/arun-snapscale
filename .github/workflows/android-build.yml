@@ -1,15 +1,20 @@
 name: Android Build
+
 on:
   workflow_dispatch:
   push:
     paths:
       - 'android-app/**'
+      - '.github/workflows/android-build.yml'
+
+permissions:
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      ANDROID_HOME: /usr/local/lib/android/sdk
+    timeout-minutes: 20
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -20,25 +25,31 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Install Android SDK
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
         shell: bash
         run: |
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
 
-      - name: Verify toolchain
+      - name: Verify project
         run: |
           java -version
           gradle --version
-          ls -la android-app
-          ls -la android-app/app/src/main/assets
+          test -f android-app/settings.gradle
+          test -f android-app/build.gradle
+          test -f android-app/app/build.gradle
+          test -f android-app/app/src/main/AndroidManifest.xml
+          test -f android-app/app/src/main/assets/index.html
 
-      - name: Clean build APK
+      - name: Clean and build APK
         working-directory: android-app
         run: |
           gradle --no-daemon clean
@@ -46,7 +57,7 @@ jobs:
 
       - name: Verify APK
         run: |
-          test -f android-app/app/build/outputs/apk/debug/app-debug.apk
+          test -s android-app/app/build/outputs/apk/debug/app-debug.apk
           ls -lh android-app/app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload APK
@@ -55,3 +66,4 @@ jobs:
           name: SnapScale-build
           path: android-app/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+          retention-days: 7
