@@ -1,17 +1,13 @@
-const express=require("express");const cors=require("cors");const bcrypt=require("bcryptjs");const jwt=require("jsonwebtoken");const mongoose=require("mongoose");const path=require("path");
-const app=express();app.use(cors());app.use(express.json({limit:"2mb"}));
-const PORT=process.env.PORT||10000, MONGO_URI=process.env.MONGO_URI, JWT_SECRET=process.env.JWT_SECRET||"change-me";
-const UserSchema=new mongoose.Schema({name:String,email:{type:String,unique:true,lowercase:true},password:String,role:{type:String,enum:["user","admin"],default:"user"},createdAt:{type:Date,default:Date.now}});
-const User=mongoose.model("User",UserSchema);
-function auth(req,res,next){try{const h=req.headers.authorization||"";req.user=jwt.verify(h.replace("Bearer ",""),JWT_SECRET);next()}catch(e){res.status(401).json({error:"Unauthorized"})}}
-function admin(req,res,next){if(req.user?.role!=="admin")return res.status(403).json({error:"Admin only"});next()}
-app.get("/api/health",(req,res)=>res.json({ok:true,service:"SnapScale API"}));
-app.post("/api/auth/register",async(req,res)=>{try{const{name,email,password}=req.body;if(!name||!email||!password||password.length<6)return res.status(400).json({error:"Name, email and 6+ character password required"});if(await User.findOne({email}))return res.status(409).json({error:"Email already registered"});const user=await User.create({name,email,password:await bcrypt.hash(password,12)});res.status(201).json({token:jwt.sign({id:user._id,email:user.email,role:user.role},JWT_SECRET,{expiresIn:"30d"}),user:{name:user.name,email:user.email,role:user.role}})}catch(e){res.status(500).json({error:"Registration failed"})}});
-app.post("/api/auth/login",async(req,res)=>{const{email,password}=req.body;const user=await User.findOne({email});if(!user||!(await bcrypt.compare(password,user.password)))return res.status(401).json({error:"Invalid email or password"});res.json({token:jwt.sign({id:user._id,email:user.email,role:user.role},JWT_SECRET,{expiresIn:"30d"}),user:{name:user.name,email:user.email,role:user.role}})});
-app.get("/api/me",auth,async(req,res)=>{const u=await User.findById(req.user.id).select("-password");res.json({user:u})});
-app.get("/api/admin/users",auth,admin,async(req,res)=>res.json(await User.find().select("-password").sort({createdAt:-1})));
-app.get("/api/admin/stats",auth,admin,async(req,res)=>res.json({users:await User.countDocuments(),admins:await User.countDocuments({role:"admin"})}));
-app.use(express.static(path.join(__dirname,"public")));
-app.get("*",(req,res)=>res.sendFile(path.join(__dirname,"public","index.html")));
-async function start(){if(!MONGO_URI){console.error("MONGO_URI missing");process.exit(1)}await mongoose.connect(MONGO_URI);if(process.env.ADMIN_EMAIL&&process.env.ADMIN_PASSWORD&&!await User.findOne({email:process.env.ADMIN_EMAIL}))await User.create({name:"Admin",email:process.env.ADMIN_EMAIL,password:await bcrypt.hash(process.env.ADMIN_PASSWORD,12),role:"admin"});app.listen(PORT,()=>console.log("SnapScale API running on "+PORT))}
-start().catch(e=>{console.error(e);process.exit(1)});
+const express=require("express"),cors=require("cors"),bcrypt=require("bcryptjs"),jwt=require("jsonwebtoken"),fs=require("fs"),path=require("path");
+const app=express(),PORT=process.env.PORT||10000,SECRET=process.env.JWT_SECRET||"change-this-secret",DB=path.join(__dirname,"data","users.json");
+app.use(cors());app.use(express.json({limit:"2mb"}));
+const read=()=>{try{return JSON.parse(fs.readFileSync(DB,"utf8"))}catch{return[]}};const write=x=>{fs.mkdirSync(path.dirname(DB),{recursive:true});fs.writeFileSync(DB,JSON.stringify(x,null,2))};
+function auth(req,res,next){try{req.user=jwt.verify((req.headers.authorization||"").replace("Bearer ",""),SECRET);next()}catch{res.status(401).json({error:"Unauthorized"})}}function admin(req,res,next){if(req.user?.role!=="admin")return res.status(403).json({error:"Admin only"});next()}
+app.get("/api/health",(q,s)=>s.json({ok:true,service:"SnapScale API"}));
+app.post("/api/auth/register",async(q,s)=>{let{name,email,password}=q.body;email=(email||"").trim().toLowerCase();if(!name||!email||!password||password.length<6)return s.status(400).json({error:"Name, email and 6+ character password required"});let u=read();if(u.some(x=>x.email===email))return s.status(409).json({error:"Email already registered"});let x={id:Date.now().toString(),name,email,password:await bcrypt.hash(password,12),role:"user",createdAt:new Date().toISOString()};u.push(x);write(u);s.status(201).json({token:jwt.sign({id:x.id,email:x.email,role:x.role},SECRET,{expiresIn:"30d"}),user:{name:x.name,email:x.email,role:x.role}})});
+app.post("/api/auth/login",async(q,s)=>{let email=(q.body.email||"").trim().toLowerCase(),u=read().find(x=>x.email===email);if(!u||!(await bcrypt.compare(q.body.password||"",u.password)))return s.status(401).json({error:"Invalid email or password"});s.json({token:jwt.sign({id:u.id,email:u.email,role:u.role},SECRET,{expiresIn:"30d"}),user:{name:u.name,email:u.email,role:u.role}})});
+app.get("/api/me",auth,(q,s)=>{let u=read().find(x=>x.id===q.user.id);u?s.json({user:{name:u.name,email:u.email,role:u.role}}):s.status(404).json({error:"User not found"})});
+app.get("/api/admin/users",auth,admin,(q,s)=>s.json(read().map(({password,...u})=>u)));
+app.get("/api/admin/stats",auth,admin,(q,s)=>{let u=read();s.json({users:u.length,admins:u.filter(x=>x.role==="admin").length})});
+let users=read(),ae=(process.env.ADMIN_EMAIL||"admin@snapscale.app").toLowerCase();if(!users.some(x=>x.email===ae)){users.push({id:"admin",name:"SnapScale Admin",email:ae,password:bcrypt.hashSync(process.env.ADMIN_PASSWORD||"ChangeMe123!",12),role:"admin",createdAt:new Date().toISOString()});write(users)}
+app.use(express.static(path.join(__dirname,"public")));app.get("*",(q,s)=>s.sendFile(path.join(__dirname,"public","index.html")));app.listen(PORT,()=>console.log("SnapScale server on "+PORT));
