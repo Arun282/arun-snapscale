@@ -40,7 +40,8 @@ app.post("/api/payment/verify",auth,async(q,s)=>{
 });
 app.post("/api/purchase",auth,(q,s)=>{let{transactionId,amount}=q.body;if(!transactionId)return s.status(400).json({error:"Transaction ID required"});let u=read(DB),i=u.findIndex(x=>x.id===q.user.id);if(i<0)return s.status(404).json({error:"User not found"});u[i].purchase={status:"pending",transactionId:String(transactionId).trim(),amount:Number(amount)||settings().price,createdAt:new Date().toISOString()};write(DB,u);let p=read(PAY);p.push({userId:u[i].id,email:u[i].email,transactionId:String(transactionId).trim(),amount:Number(amount)||settings().price,status:"pending",createdAt:new Date().toISOString()});write(PAY,p);s.json({ok:true,status:"pending"})});
 app.get("/api/admin/users",auth,admin,(q,s)=>s.json(read(DB).map(({password,...u})=>u)));
-app.get("/api/admin/payments",auth,admin,(q,s)=>s.json(read(PAY)));
+app.get("/api/admin/payments",auth,admin,(q,s)=>s.json(read(PAY).sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt))));
+app.get("/api/admin/purchase-history",auth,admin,(q,s)=>{let p=read(PAY).sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));s.json({total:p.length,approved:p.filter(x=>x.status==="approved").length,pending:p.filter(x=>x.status==="pending").length,totalAmount:p.filter(x=>x.status==="approved").reduce((n,x)=>n+(Number(x.amount)||0),0),history:p})});
 app.get("/api/admin/stats",auth,admin,(q,s)=>{let u=read(DB),p=read(PAY);s.json({users:u.length,admins:u.filter(x=>x.role==="admin").length,pendingPayments:p.filter(x=>x.status==="pending").length,approvedPayments:p.filter(x=>x.status==="approved").length})});
 app.get("/api/admin/settings",auth,admin,(q,s)=>s.json(settings()));
 app.put("/api/admin/settings",auth,admin,(q,s)=>{let old=settings(),x={...old,...q.body};write(SET,x);s.json(x)});
