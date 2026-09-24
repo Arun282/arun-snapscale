@@ -1,37 +1,70 @@
 name: SnapScale Android APK
+
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+    paths:
+      - "android-app/**"
+      - ".github/workflows/android-build.yml"
   workflow_dispatch:
+
 permissions:
   contents: read
+
 jobs:
   build:
+    name: Build Debug APK
     runs-on: ubuntu-latest
     timeout-minutes: 30
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
-      - uses: android-actions/setup-android@v3
-      - name: Install SDK
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
         run: |
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
-      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
-      - name: Build APK
+
+      - name: Check build environment
         working-directory: android-app
         run: |
-          gradle --no-daemon clean
-          gradle --no-daemon :app:assembleDebug --stacktrace
+          java -version
+          gradle --version
+          test -f settings.gradle
+          test -f app/build.gradle
+          test -f app/src/main/AndroidManifest.xml
+          test -f app/src/main/java/com/arun/snapsacle/MainActivity.java
+          test -f app/src/main/assets/index.html
+
+      - name: Build APK
+        working-directory: android-app
+        run: gradle --no-daemon --stacktrace :app:assembleDebug
+
       - name: Verify APK
-        run: test -s android-app/app/build/outputs/apk/debug/app-debug.apk
-      - uses: actions/upload-artifact@v4
+        run: |
+          test -s android-app/app/build/outputs/apk/debug/app-debug.apk
+          ls -lh android-app/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
         with:
           name: SnapScale-APK
           path: android-app/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
           retention-days: 14
