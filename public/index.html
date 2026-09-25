@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SnapScale — Free Online Photo Resizer</title>
+<meta name="description" content="SnapScale is a fast free online photo resize and editing tool. Resize, enhance, rotate and download photos.">
+<style>
+*{box-sizing:border-box}body{margin:0;background:#090b10;color:#f7f7f8;font-family:Inter,Arial,sans-serif}
+header{position:sticky;top:0;z-index:5;background:#090b10ee;backdrop-filter:blur(12px);border-bottom:1px solid #252936}
+.nav{max-width:1100px;margin:auto;padding:16px 20px;display:flex;align-items:center;justify-content:space-between}
+.logo{font-size:25px;font-weight:900;color:#ffd21f}.nav small{color:#8f96a8}
+.wrap{max-width:1100px;margin:auto;padding:28px 20px 70px}
+.hero{text-align:center;padding:55px 10px 30px}.hero h1{font-size:clamp(38px,7vw,72px);line-height:1;margin:0 0 18px}.hero h1 span{color:#ffd21f}.hero p{max-width:650px;margin:auto;color:#aab1c0;font-size:18px;line-height:1.6}
+.btn{display:inline-block;border:0;border-radius:12px;padding:14px 20px;background:#ffd21f;color:#111;font-weight:800;cursor:pointer;text-decoration:none;margin:22px 6px 0}
+.btn.alt{background:#171b25;color:#fff;border:1px solid #303646}
+.card{background:#11151e;border:1px solid #292f3d;border-radius:22px;padding:22px;margin-top:22px;box-shadow:0 16px 50px #0004}
+.drop{padding:48px 20px;text-align:center;border:2px dashed #3b4252;border-radius:18px;cursor:pointer;background:#0d1017}.drop:hover{border-color:#ffd21f}
+.drop .icon{font-size:42px}.drop b{display:block;font-size:20px;margin:10px}.muted{color:#9299aa}
+#editor{display:none}.tools{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.tools label{color:#aeb5c4;font-size:13px}.tools input,.tools select{width:100%;margin-top:6px}
+input[type=number],select{background:#0b0e14;color:#fff;border:1px solid #303646;border-radius:10px;padding:11px}
+input[type=range]{accent-color:#ffd21f}
+.preview{display:block;max-width:100%;max-height:520px;margin:15px auto;border-radius:16px}
+.actions{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:15px}.actions button{padding:12px;border:0;border-radius:10px;background:#1b202b;color:#fff;font-weight:700;cursor:pointer}.actions .primary{background:#ffd21f;color:#111}
+.features{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.feature{padding:20px;background:#11151e;border:1px solid #292f3d;border-radius:18px}.feature b{font-size:18px}.feature p{color:#949cad;line-height:1.5}
+footer{text-align:center;color:#72798a;padding:35px 20px;border-top:1px solid #252936}
+@media(max-width:700px){.features{grid-template-columns:1fr}.tools,.actions{grid-template-columns:1fr}.hero{padding-top:35px}}
+</style>
+</head>
+<body>
+<header><div class="nav"><div class="logo">SnapScale</div><small>Fast • Simple • Free</small></div></header>
+<main class="wrap">
+<section class="hero"><h1>Edit photos <span>your way.</span></h1><p>Resize, enhance, rotate, flip and export your photos directly in your browser. No app installation required.</p><a class="btn" href="#editorCard">Start Editing</a></section>
+<section class="card" id="editorCard">
+<div class="drop" id="drop"><div class="icon">📸</div><b>Upload a photo</b><div class="muted">JPG, PNG, WebP and other browser-supported images</div><input id="file" type="file" accept="image/*" hidden></div>
+<div id="editor">
+<img id="preview" class="preview">
+<div class="tools">
+<label>Width<input id="w" type="number"></label><label>Height<input id="h" type="number"></label>
+<label>Brightness<input id="bright" type="range" min=".5" max="1.8" step=".05" value="1"></label>
+<label>Contrast<input id="contrast" type="range" min=".5" max="1.8" step=".05" value="1"></label>
+<label>Saturation<input id="sat" type="range" min="0" max="2" step=".05" value="1"></label>
+<label>Blur<input id="blur" type="range" min="0" max="8" step=".5" value="0"></label>
+</div>
+<div class="actions"><button onclick="rotate(-90)">↶ Rotate</button><button onclick="rotate(90)">↷ Rotate</button><button onclick="flip()">↔ Flip</button></div>
+<div class="actions"><select id="format"><option value="image/jpeg">JPG</option><option value="image/png">PNG</option><option value="image/webp">WebP</option></select><button class="primary" onclick="downloadImage()">⬇ Download Photo</button><button onclick="resetEdit()">Reset</button></div>
+</div>
+</section>
+<section class="features">
+<div class="feature"><b>⚡ Fast</b><p>Photo processing happens locally in your browser for quick editing.</p></div>
+<div class="feature"><b>📐 Resize</b><p>Set exact width and height before exporting your edited image.</p></div>
+<div class="feature"><b>🎨 Enhance</b><p>Adjust brightness, contrast, saturation and blur with simple controls.</p></div>
+</section>
+</main>
+<footer>© 2026 SnapScale · Free online photo tools</footer>
+<canvas id="canvas" hidden></canvas>
+<script>
+const $=id=>document.getElementById(id);let img=new Image(),angle=0,flipX=1;
+$('drop').onclick=()=>$('file').click();
+$('file').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{img.onload=()=>{$('preview').src=img.src;$('w').value=img.naturalWidth;$('h').value=img.naturalHeight;$('editor').style.display='block';update()};img.src=r.result};r.readAsDataURL(f)};
+['bright','contrast','sat','blur'].forEach(id=>$(id).oninput=update);
+function update(){if(!img.src)return;$('preview').style.filter='brightness('+$('bright').value+') contrast('+$('contrast').value+') saturate('+$('sat').value+') blur('+$('blur').value+'px)';$('preview').style.transform='rotate('+angle+'deg) scaleX('+flipX+')'}
+function rotate(x){angle=(angle+x+360)%360;update()}function flip(){flipX*=-1;update()}
+function resetEdit(){angle=0;flipX=1;$('bright').value=1;$('contrast').value=1;$('sat').value=1;$('blur').value=0;$('w').value=img.naturalWidth;$('h').value=img.naturalHeight;update()}
+function downloadImage(){let w=+$('w').value||img.naturalWidth,h=+$('h').value||img.naturalHeight,c=$('canvas');c.width=w;c.height=h;let x=c.getContext('2d');x.save();x.translate(w/2,h/2);x.rotate(angle*Math.PI/180);x.scale(flipX,1);x.filter='brightness('+$('bright').value+') contrast('+$('contrast').value+') saturate('+$('sat').value+') blur('+$('blur').value+'px)';x.drawImage(img,-w/2,-h/2,w,h);x.restore();c.toBlob(b=>{const a=document.createElement('a');a.href=URL.createObjectURL(b);const ext=$('format').value==='image/png'?'png':$('format').value==='image/webp'?'webp':'jpg';a.download='snapscale.'+ext;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)},$('format').value,.92)}
+</script>
+</body></html>
